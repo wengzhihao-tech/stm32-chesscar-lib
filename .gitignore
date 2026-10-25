@@ -1,0 +1,17 @@
+# 编译产物
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+test/selftest
+
+# IDE
+.vscode/
+.settings/
+Debug/
+Release/
+*.uvguix.*
+*.uvoptx
