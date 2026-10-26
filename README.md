@@ -1,9 +1,20 @@
 # stm32-chesscar-lib
 
-面向**光电象棋机器人小车**的 STM32 可复用代码库（HAL 库 + STM32CubeMX）。
+面向**第十五届全国大学生光电设计竞赛 赛题1「智能车光电象棋对抗」**的
+STM32 可复用代码库（HAL 库 + STM32CubeMX）。
 
 本库从本机已上车验证的 `smartcar` 工程（TI MSPM0 平台）提取算法层，重写硬件层为
 STM32F1/F4 的 HAL 实现，并补充了编译验证与 PC 端算法自测。
+
+> ## ⚠ 本赛题不是循迹赛
+>
+> 赛题是 3m×2m **开放场地**推棋子进球门，场上**没有引导线**。
+> 核心难点是「自主定位 + 棋子识别 + 目标决策」，不是跟线。
+>
+> 因此 `line_follow`（循迹外环）在本赛题**用不上**（保留以备循迹练习），
+> 比赛主线由 `navigator`（点到点导航）+ `match_fsm`（比赛状态机）驱动。
+>
+> **赛题方案与硬件选型请先读 [`docs/COMPETITION_TASK1.md`](docs/COMPETITION_TASK1.md)。**
 
 ## 为什么这样分层
 
@@ -28,9 +39,17 @@ test/     PC 端自测 —— 用主机 gcc 验证算法，不必烧板
 | `common/pid_controller.*` | 位置式 + 增量式 PID | 条件积分抗饱和，不止积分限幅 |
 | `common/encoder_math.*` | 脉冲 ↔ 速度 ↔ 里程换算 | 提供速度量化步长，用于判断低速可分辨下限 |
 | `common/speed_control.*` | 双轮速度闭环 | 前馈 + 死区补偿 + 方向/超速自检 |
-| `common/line_sensor.*` | 8 路探头归一化与加权偏差 | 支持 DO 数字量与 AO 模拟量两种模块 |
-| `common/line_follow.*` | 循迹外环 PD | 外环 20ms / 内环 10ms 的串级结构 |
+| `common/line_sensor.*` | 8 路探头归一化与加权偏差 | 本赛题可降级用于边界/压线检测 |
+| `common/line_follow.*` | 循迹外环 PD | **本赛题用不上**，保留以备循迹练习 |
 | `common/link_protocol.*` | 帧头 + CRC16 二进制协议 | 逐字节状态机，可从粘包/丢字节恢复 |
+| **赛题专用模块（↓ 以下为赛题1 新增）** | | |
+| `common/field_config.h` | **场地/规则/车辆常量唯一入口** | 含「待主办方确认」项的明确标注 |
+| `common/pose_estimator.*` | 开放场地位姿估计 | 里程计 + IMU + **80mm 挡板贴边绝对校正** |
+| `common/chess_target.*` | 棋子表管理与目标决策 | 权衡分值/推送距离/风险，不是简单推最近的 |
+| `common/navigator.*` | 点到点导航 | 大角度先转再走；**对手过近强制规避**（规则红线） |
+| `common/match_fsm.*` | 比赛状态机 | 搜索→接近→对准→推送→记分→退出，每状态带超时 |
+| `common/vision_chess.*` | 视觉棋子上报解析 | 协议 0x14；**等级允许未知**（汉字识别不可靠） |
+| `stm32/tof_vl53l0x.*` | 多路 ToF 测距管理 | 含 **I2C 地址冲突改址流程**（必踩的坑） |
 | `stm32/bsp_config.h` | **硬件映射唯一入口** | 内含完整 CubeMX 勾选清单 |
 | `stm32/motor_tb6612.*` | TB6612FNG 双电机驱动 | 换向前先清 PWM，防穿通电流 |
 | `stm32/encoder_tim.*` | 定时器编码器模式测速 | 16 位计数器溢出累计为 32 位 |
@@ -41,6 +60,8 @@ test/     PC 端自测 —— 用主机 gcc 验证算法，不必烧板
 
 ## 快速开始
 
+0. **先读 [`docs/COMPETITION_TASK1.md`](docs/COMPETITION_TASK1.md)**，
+   确认赛题待定参数（球门尺寸、棋子分值表、比赛时长）并更新 `common/field_config.h`。
 1. 用 CubeMX 按 `stm32/bsp_config.h` 顶部注释里的清单配置外设并生成工程。
 2. 把 `common/`、`stm32/`、`examples/` 加入工程源文件与 Include Path。
 3. 按 `examples/main_reference.c` 的说明，在 `main.c` 的 USER CODE 区加三行调用。
@@ -54,13 +75,18 @@ cd test && make run
 
 ## 验证状态
 
-- 13 个编译单元在 `gcc -std=c99 -Wall -Wextra` 下零警告零错误通过（用 HAL 桩替换芯片头文件）。
-- 算法层 36 项断言全部通过，含 CRC16-CCITT-FALSE 标准向量 `"123456789" → 0x29B1`。
+- **17 个编译单元**在 `gcc -std=c99 -Wall -Wextra` 下零警告零错误通过（用 HAL 桩替换芯片头文件）。
+- **算法层 136 项断言全部通过**（基础 36 + 赛题专用 100），
+  含 CRC16-CCITT-FALSE 标准向量 `"123456789" → 0x29B1`，
+  以及完整得分流程（接近→对准→推送→进门→记分→退出）的端到端验证。
 - **硬件层尚未在实物 STM32 上验证**：`stm32/` 下的 HAL 调用序列经过编译与接口核对，
-  但引脚分配、编码器方向、探头极性必须按 `docs/TUNING_GUIDE.md` 现场确认。
+  但引脚分配、编码器方向、ToF 改址流程必须现场确认。
+- `stm32/tof_vl53l0x.c` 是简化实现（多路组织 + 读数过滤），
+  完整校准建议引入 ST 官方 ULD 驱动，详见赛题文档。
 
 ## 文档
 
+- [`docs/COMPETITION_TASK1.md`](docs/COMPETITION_TASK1.md) —— **赛题1 方案与硬件选型（先读这个）**
 - [`docs/TUNING_GUIDE.md`](docs/TUNING_GUIDE.md) —— 标定与调参顺序（**上车前必读**）
 - [`docs/PITFALLS.md`](docs/PITFALLS.md) —— 踩坑清单
 - [`docs/PROTOCOL.md`](docs/PROTOCOL.md) —— 串口协议规格
