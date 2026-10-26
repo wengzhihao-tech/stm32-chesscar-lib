@@ -38,7 +38,7 @@
 1. **编码器方向**：手动向前转左轮，打印 `Encoder_GetLeftCount()`。
    计数应**增加**。若减少，改 `stm32/encoder_tim.c` 顶部的
    `ENCODER_LEFT_DIRECTION_SIGN` 为 `-1`（右轮同理）。
-2. **电机方向**：开环给左电机正 PWM（`Motor_SetLeft(+800)`），轮子应朱**前进**方向转。
+2. **电机方向**：开环给左电机正 PWM（`Motor_SetLeft(+800)`），轮子应朝**前进**方向转。
    若反转，交换 `bsp_config.h` 里该侧的 IN1/IN2 定义。
 3. **两者一致性**：给正 PWM 时计数必须增加。一正一负会直接触发
    `SPEED_CONTROL_FAULT_ENCODER_DIRECTION`。
