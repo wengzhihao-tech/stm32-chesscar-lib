@@ -2,9 +2,10 @@
 # common/ 不依赖任何芯片寄存器，所以可以直接用主机 gcc 验证算法正确性，
 # 这比每次烧进单片机看 OLED 快得多。
 #
-#   make run        运行全部自测（基础模块 + 赛题专用模块）
+#   make run        运行全部自测
 #   make run-base   只跑基础模块（PID/编码器/探头/协议）
 #   make run-match  只跑赛题专用模块（位姿/决策/导航/状态机/视觉）
+#   make run-ramp   只跑运动斜坡（软启动/换向/低速下限）
 CC      := gcc
 CFLAGS  := -std=c99 -Wall -Wextra -I../common
 LDFLAGS := -lm
@@ -22,7 +23,10 @@ MATCH_SRC := ../common/pose_estimator.c \
              ../common/vision_chess.c \
              ../common/link_protocol.c
 
-all: selftest selftest_match
+RAMP_SRC := ../common/motion_ramp.c \
+            ../common/encoder_math.c
+
+all: selftest selftest_match selftest_ramp
 
 selftest: selftest.c $(BASE_SRC)
 	$(CC) $(CFLAGS) -o $@ selftest.c $(BASE_SRC) $(LDFLAGS)
@@ -30,7 +34,10 @@ selftest: selftest.c $(BASE_SRC)
 selftest_match: selftest_match.c $(MATCH_SRC)
 	$(CC) $(CFLAGS) -o $@ selftest_match.c $(MATCH_SRC) $(LDFLAGS)
 
-run: run-base run-match
+selftest_ramp: selftest_ramp.c $(RAMP_SRC)
+	$(CC) $(CFLAGS) -o $@ selftest_ramp.c $(RAMP_SRC) $(LDFLAGS)
+
+run: run-base run-match run-ramp
 
 run-base: selftest
 	./selftest
@@ -38,7 +45,10 @@ run-base: selftest
 run-match: selftest_match
 	./selftest_match
 
-clean:
-	rm -f selftest selftest_match
+run-ramp: selftest_ramp
+	./selftest_ramp
 
-.PHONY: all run run-base run-match clean
+clean:
+	rm -f selftest selftest_match selftest_ramp
+
+.PHONY: all run run-base run-match run-ramp clean
