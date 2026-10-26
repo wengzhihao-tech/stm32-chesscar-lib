@@ -10,7 +10,7 @@ static float MotionRamp_StepLimit(float ratePerSec2, float periodMs)
     return ratePerSec2 * periodMs / 1000.0f;
 }
 
-/* 把 value 朱 target 移动，单拍最多走 step。 */
+/* 把 value 朝 target 移动，单拍最多走 step。 */
 static float MotionRamp_Approach(float value, float target, float step, bool *changed)
 {
     float diff = target - value;
@@ -46,7 +46,7 @@ void MotionRamp_LoadDefaultConfig(MotionRamp_Config *config)
     config->angularRateCmps2 = 90.0f;
     /*
      * 4.3cm/s ≈ 3 × 1.42cm/s（13PPR × 4 × 20.409、48mm 轮、10ms 一拍的量化步长）。
-     * 换电机、换轮径或改控制周期后必须重算，不要照搬这个数。
+     * 换电机、换轮径或改控制周期后必须重算，不要照抄这个数。
      * 现场打印一次 Encoder_SpeedQuantumCmps() 就能得到正确值。
      */
     config->minMoveCmps = 4.3f;
