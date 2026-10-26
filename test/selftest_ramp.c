@@ -33,10 +33,10 @@ int main(void)
     {
         MotionRamp_Config bad = rc;
         bad.periodMs = 0.0f;
-        CHECK(!MotionRamp_Init(&rs, &bad), "周期为 0 被拒绍");
+        CHECK(!MotionRamp_Init(&rs, &bad), "周期为 0 被拒绝");
         bad = rc; bad.accelCmps2 = -1.0f;
-        CHECK(!MotionRamp_Init(&rs, &bad), "负加速度被拒绍");
-        CHECK(!MotionRamp_Init(0, &rc) && !MotionRamp_Init(&rs, 0), "NULL 入参被拒绍");
+        CHECK(!MotionRamp_Init(&rs, &bad), "负加速度被拒绝");
+        CHECK(!MotionRamp_Init(0, &rc) && !MotionRamp_Init(&rs, 0), "NULL 入参被拒绝");
     }
     MotionRamp_Init(&rs, &rc);
 
@@ -102,10 +102,10 @@ int main(void)
             if (v == 0.0f) { zeroHold++; }
             prev = v;
         }
-        printf("换向: 零速保持 %d 拍, 跮零跳变 %d, 终值 %.3f cm/s\n",
+        printf("换向: 零速保持 %d 拍, 跨零跳变 %d, 终值 %.3f cm/s\n",
                zeroHold, jumpThroughZero, prev);
         CHECK(sawReversing, "换向期间 IsReversing 为真");
-        CHECK(!jumpThroughZero, "换向不会一拍内跮过零点(避免 H 桥穿通与机械冲击)");
+        CHECK(!jumpThroughZero, "换向不会一拍内跨过零点(避免 H 桥穿通与机械冲击)");
         CHECK(zeroHold >= (int)rc.reverseHoldCycles, "零速至少保持配置的拍数");
         CHECK(fabsf(prev + 20.0f) < 1e-4f, "换向流程结束后到达 -20cm/s");
     }
