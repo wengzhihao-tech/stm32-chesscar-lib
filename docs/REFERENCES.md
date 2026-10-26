@@ -13,7 +13,7 @@
 - **TB6612FNG 引脚与接线说明**（STBY 必须拉高、方向脚同电平不转、A/B 并联驱动大电流电机）
   <https://www.tinkered.ai/components/tb6612fng-motor-driver>
   <https://www.sparkfun.com/sparkfun-motor-driver-dual-tb6612fng-1a.html>
-- **PWM 与 TB6612FNG 驱动电机（两轮自平衡小车实战指南）**
+- **PWM 与 TB6612FNG 驱动电机（两轮自平衢小车实战指南）**
   含完整 CubeMX 配置步骤、24kHz PWM 的 PSC/ARR 取值、占空比公式
   <https://c.miaowlabs.com/A25.html>
 - **STM32Cube HAL 库利用 PWM 控制电机转动（TB6612）**
@@ -108,3 +108,85 @@
   <https://bbs.csdn.net/weixin_29191081/article/details/100177473>
 - **STM32 智能小车 PID 循迹算法优化：从左右摇摆到平滑巡线**
   <https://bbs.csdn.net/weixin_29166013/article/details/100179029>
+
+---
+
+## 2026-10-26 增量：运动斜坡相关调研
+
+本节是新增 `common/motion_ramp.*` 时查证的资料。
+上文已列出的条目不重复，只标注它在本次设计里起了什么作用。
+
+### 软启动斜坡的公开实现
+
+- **baihao774/stm32-tb6612-driver**（STM32F103 标准外设库，TIM3_CH3 单 A 通道）
+  README 明确写出「**升速软启动斜坡：每个控制周期占空比递增 5%，
+  抑制电机启动冲击电流**」，主循环按固定 20ms 调用 `TB6612_Update()` 推进斜坡。
+  另外两点与本库取值一致，可互为旁证：**20kHz PWM**、
+  **占空比分辨率 1/3600**（对应 72MHz/3600）；
+  以及三种停止方式的明确区分（刹车 / 滑行停止 / 待机）。
+  <https://github.com/baihao774/stm32-tb6612-driver>
+
+  **本库的不同做法**：它斜坡的是**开环占空比**，本库斜坡的是**目标速度**，
+  挂在速度闭环之前。若照抄到速度环之后去限制 PWM 变化率，
+  等于给闭环串了一阶滞后，会改变已调好的 PID 增益含义。
+  详见 [`MOTION_RAMP.md`](MOTION_RAMP.md)。
+
+### 低速不可分辨下限的依据
+
+- **实战经验：在 STM32 中实现电机测速的方法介绍**（已在「编码器测速」节列出）
+  本次重点用到它的两个结论：
+  **① M 法分辨率与转速无关**，要提高只能增大每圈脉冲数 Z 或采样周期 Ts；
+  **② M 法误差率与测定时间内脉冲数 M1 成反比**，转速越低 M1 越小、误差率越大，
+  所以 M 法适合高速、T 法适合低速。文中附了 1460~2920rpm、146~292rpm、
+  19~35rpm 三档模拟测试曲线，结论是「高速下 M 法效果更好，
+  低速情况下 M 法测速偏差大，T 法更适合低速测速」。
+  本库是纯 M 法（固定 10ms 读计数差），因此低速只能靠 `minMoveCmps` 下限回避，
+  这是原理限制而非调参问题。
+  文中还给出可直接照抄的硬件方案：TIM3 编码器接口 4x 计数 → TIM3_TRGO
+  作为 TIM2 的捕获与复位触发源 → TIM6 做 ms 级中断，
+  在中断里同时算 M 法（读 TIM3_CNT 差值）和 T 法（读 TIM2_CCR1）。
+  将来若确实需要低速精确闭环，这是正解。
+  <https://mcu.eetrend.com/content/2025/100589256.html>
+
+### 同类整车工程（可对照参数与工程组织）
+
+- **09-25/m0-line-tracing-car**（MSPM0G3507 + 8 路灰度 + 编码器 + ICM42688 +
+  SSD1306 + TB6612/DRV8701 可选）
+  最有价值的一条旁证：该工程同样用 **20kHz 电机 PWM + 10ms 主控制周期**，
+  与本库 `CAR_PWM_FREQUENCY_HZ` / `CAR_SPEED_LOOP_PERIOD_MS` 完全一致。
+  工程组织也同思路：参数集中在单个 `car_trace.h`（对应本库
+  `car_physical_config.h`）；README 明确声明「仓库中的参数用于当前底盘与赛道，
+  移植到其它底盘前需要重新标定」，并建议改参数前先记录原值、
+  **先抬起车轮进行方向和急停测试**——与 [`TUNING_GUIDE.md`](TUNING_GUIDE.md)
+  第 0 步「全程架空直到第 4 步」的要求一致。
+  <https://github.com/09-25/m0-line-tracing-car>
+- **5ee511/MSPM0G3507-Car**（八路灰度直角弯巡线，TB6612 + 编码器速度 PI + 巡线 PD）
+  其控制分工与本库 `speed_control`（内环 PI）+ `line_follow`（外环 PD）完全对应，
+  README 标注基础直线、普通弯道、左右直角弯均已实车验证。
+  <https://github.com/5ee511/MSPM0G3507-Car>
+- **Heximiao/m0test**（MSPM0G3507 + TB6612 + 11PPR 霍尔编码器双轮速度闭环）
+  公开了一组可对照的量级：最大线速度 **100mm/s**、最大角速度 **120deg/s**；
+  速度目标单位是「每 20ms 控制周期的编码器增量」，默认 `BASE = 20 counts/20ms`，
+  原地 90° 转弯按约 275 个 count 换算、转弯速度 15 counts/20ms。
+  可作为「自己的参数是否离谱」的粗检标尺，但**不能直接比计数**：
+  它是 11PPR / 20ms，本车是 13PPR×4 / 10ms，必须各自折算成 cm/s 再比。
+  设计取舍上值得一提：它直接用 counts/周期 表达速度目标，省掉换算误差；
+  本库统一用 cm/s（见 `chesscar_common.h` 的单位约定），
+  代价是多一层换算，好处是上层算法读起来有物理意义、换平台不用改。
+  <https://github.com/Heximiao/m0test>
+
+### 顺带记录（本次未采用，留作备选）
+
+- **Prry/stm32-uart-dma**（F030/F103/F407/H743 四平台实测，标准库与 HAL/LL 并存）
+  收发双向环形缓冲 + 不定长接收，三条接收路径（DMA 半满中断 /
+  传输完成中断 / 空闲中断）并存。本库 `uart_link.c` 目前只用
+  「空闲中断 + 关半传输中断」，若将来提高波特率可参考其半满双缓冲方案。
+  <https://github.com/Prry/stm32-uart-dma>
+- **U8g2 移植到 STM32**（硬件 I2C / 硬件 SPI / 软件 SPI 三种 callback 写法）
+  本库 `oled_ssd1306.*` 只有 8x16 ASCII 字库，够显示调参数值。
+  若现场需要画棋子分布图或状态条，U8g2 只需实现 `u8x8_byte_*` 与
+  `u8x8_gpio_and_delay` 两个回调即可接入。
+  代价：整屏缓冲占约 1KB RAM，且刷新仍是阻塞 I2C，
+  [`PITFALLS.md`](PITFALLS.md) 第 20 条（整屏刷新不能放进控制中断）同样适用。
+  <https://controllerstech.com/how-to-port-u8g2-graphic-lib-to-stm32>
+  <https://www.cnblogs.com/frozencandles/p/16358483.html>
