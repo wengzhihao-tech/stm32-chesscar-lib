@@ -11,6 +11,9 @@
 #include "bsp_config.h"
 #include "encoder_tim.h"
 #include "uart_link.h"
+#if BSP_LINE_SENSOR_USE_ADC
+#include "adc_line_sensor.h"
+#endif
 
 /**
  * @brief 定时器周期中断。
@@ -52,3 +55,20 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     UartLink_OnError(huart);
 }
+
+/**
+ * @brief ADC 转换完成回调。
+ *
+ * ADC1 在 Circular DMA 模式下每完成一次完整的 8 通道扫描触发一次。
+ * 只在模拟量探头模式（BSP_LINE_SENSOR_USE_ADC == 1）下编译。
+ *
+ * 若工程中还有其他 ADC 实例，在此处按 hadc->Instance 区分后分别处理。
+ */
+#if BSP_LINE_SENSOR_USE_ADC
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+    if (hadc->Instance == ADC1) {
+        ADC_LineSensor_OnConvCplt();
+    }
+}
+#endif /* BSP_LINE_SENSOR_USE_ADC */
