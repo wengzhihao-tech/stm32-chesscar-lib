@@ -5,6 +5,10 @@
 #include "app_chesscar.h"
 
 #include "bsp_config.h"
+
+#if BSP_LINE_SENSOR_USE_ADC
+#include "adc_line_sensor.h"
+#endif
 #include "car_physical_config.h"
 #include "encoder_tim.h"
 #include "line_follow.h"
@@ -13,6 +17,7 @@
 #include "oled_ssd1306.h"
 #include "speed_control.h"
 #include "uart_link.h"
+#include <string.h>
 
 /* ===================== 节拍标志 ===================== */
 static volatile uint32_t g_tickMs;
@@ -25,10 +30,6 @@ static SpeedControl_Controller g_speed;
 static LineSensor_State g_lineSensor;
 static LineFollow_State g_lineFollow;
 static App_CarMode g_mode = CAR_MODE_IDLE;
-
-#if BSP_LINE_SENSOR_USE_ADC
-static uint16_t g_lineAdc[BSP_LINE_SENSOR_CHANNELS];
-#endif
 
 /* ===================== 速度环回调 ===================== */
 static int32_t App_ReadLeftEncoder(void)  { return Encoder_GetLeftCount(); }
@@ -43,11 +44,17 @@ static void App_SampleLineSensor(void)
 {
 #if BSP_LINE_SENSOR_USE_ADC
     /*
-     * ADC 已配置为扫描 + DMA 循环模式，g_lineAdc 由 DMA 自动刷新，
-     * 这里直接取用。若没用 DMA，就改成逐通道 HAL_ADC_PollForConversion，
-     * 但注意 8 通道轮询会占用约 100us。
+     * ADC1 在扫描 + DMA Circular 模式下由硬件持续采样，快照在 ConvCplt
+     * 中断里原子更新（双缓冲设计见 stm32/adc_line_sensor.c 的文件头说明）。
+     * 这里只从快照取一帧完整数据，不直接读 DMA 缓冲，避免读到
+     * 「前几路是新值、后几路是上轮值」的混合帧。
+     * DMA 尚未完成第一轮时 GetRaw 返回 false，本次跳过，等下一拍。
      */
-    LineSensor_UpdateAnalog(&g_lineSensor, g_lineAdc);
+    uint16_t raw[BSP_LINE_SENSOR_CHANNELS];
+
+    if (ADC_LineSensor_GetRaw(raw)) {
+        LineSensor_UpdateAnalog(&g_lineSensor, raw);
+    }
 #else
     uint8_t mask = 0U;
 
@@ -166,8 +173,8 @@ void App_Init(void)
     UartLink_Init(App_OnFrame);
 
 #if BSP_LINE_SENSOR_USE_ADC
-    HAL_ADC_Start_DMA(&BSP_LINE_SENSOR_ADC, (uint32_t *)g_lineAdc,
-                      BSP_LINE_SENSOR_CHANNELS);
+    /* 启动 ADC1 DMA Circular 扫描；此后由 ConvCplt 回调刷新快照。 */
+    ADC_LineSensor_Init();
 #endif
 
     SpeedControl_LoadDefaultConfig(&speedConfig);
