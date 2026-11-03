@@ -172,3 +172,42 @@ ADC Circular DMA 持续往 `s_dmaBuf` 写，主循环若直接读该数组，
 正确做法：在 `HAL_ADC_ConvCpltCallback`（中断上下文）里把缓冲
 快照到另一块 `s_snapBuf`，主循环只读快照——
 `stm32/adc_line_sensor.c` 的双缓冲实现已处理此问题。
+
+
+---
+
+## 灰度传感器与循迹
+
+**30. 探头物理顺序必须与代码约定一致，调反了不要改 `line_follow.c` 符号**
+本库约定 bit0 = 最左侧探头（车头视角），`line_follow.c` 按此约定计算转向：
+error 为正（线偏右）→ 右轮减速。接线时若把最右侧探头接到 ADC 通道 0，
+`LineSensor_GetError()` 会返回反向偏差（偏左给正值、偏右给负值），
+实际表现是车跑反方向弯：向左偏时反而继续向左打舵。
+正确做法：调整 `stm32/bsp_config.h` 里 ADC 通道 Rank 分配，使通道 Rank 1
+对应物理最左侧探头，串口打印 `LineSensor_GetMask()` 验证：
+遮住最左探头时 bit0 应置位。
+**绝不能在 `line_follow.c` 里用负号"修正"偏差**——那会让后来读代码的人
+把这个符号当作正常设计而不知道接线是反的，埋下隐患。
+
+**31. allBlack 在棋盘十字格线交叉点会误触发停车**
+棋盘格线两两垂直，车压过交叉点时 8 路探头全部踩黑，
+`LineSensor_IsAllBlack()` 短暂为真。若状态机把 allBlack 直接映射到"到达目标、停车"，
+车会在每一个格线交叉点被误停，根本到不了目标棋格。
+正确处理：**allBlack 只在特定状态下才解释为停车**，例如：
+对准推送的最后阶段、已进入棋格中心且速度接近零时。
+在循迹/导航状态下，allBlack 的最安全处理是维持 `lastValidError`（上次有效偏差）
+继续直行，等离开交叉点后恢复——`line_sensor.c` 的
+`allBlack`、`lineFound`、`lastValidError` 字段正是为此设计的，
+允许外层 `match_fsm.c` 按当前状态分情况处理。
+
+**32. 标定必须先白底再黑线；顺序反了归一化值域会倒置**
+`LineSensor_Calibrate(&s, adc, false)` 记录 `whiteReference`，
+`LineSensor_Calibrate(&s, adc, true)` 记录 `blackReference`。
+**先放白底调 false、再压黑线调 true**，两次缺一不可。
+若顺序写反或只调了一次，会导致 `whiteReference < blackReference`，
+归一化公式 `(adc - white) / (black - white)` 对白底给出约 1000
+（本应接近 0）、对黑线给出接近 0（本应接近 1000），
+命中阈值 500 永远判不上，循迹完全失效。
+诊断方法：串口打印各通道 `normalized[]`，
+白底应接近 0（≤100）、黑线应接近 1000（≥900）；
+若关系颠倒，说明标定调用顺序写反，重标一遍即可。
