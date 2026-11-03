@@ -94,6 +94,10 @@ cd test && make run-ramp   # 只跑运动斜坡
   ADC Circular DMA 启动顺序（MX_DMA_Init 须先于 MX_ADC1_Init）、
   DMA 缓冲地址对齐、以及 8 路通道 Rank 顺序与探头编号的对应关系
   必须在实物 STM32 上用串口打印原始 ADC 値确认。
+- `docs/PITFALLS.md`（2026-11-03 新增第 30~32 条）：覆盖探头物理编号方向
+  与代码约定的一致性、allBlack 在棋盘格线交叉点的正确处理方式、
+  以及标定调用顺序（先白底再黑线）；对应参考资料已补入 `docs/REFERENCES.md`
+  2026-11-03 增量节。
 
 ## 文档
 
