@@ -226,3 +226,25 @@
   所有 STM32 家族（F0/F1/F4/F7/H7/G0/G4/L4）均支持 `HAL_UARTEx_ReceiveToIdle_DMA()`，
   若报编译错误先检查 NVIC 是否使能了 UART 全局中断。
   <https://controllerstech.com/stm32-uart-5-receive-data-using-idle-line>
+
+---
+
+## 2026-11-03 增量：循迹传感器行为与全黑检测调研
+
+本节是新增 `docs/PITFALLS.md` 第 30~32 条时查证的资料。
+
+- **STM32 灰度传感器寻迹代码详解：从 GPIO 采样到 PID 差速闭环**
+  关键结论：全黑（多路同时触发）不一定是故障——棋盘格线交叉点和终点线
+  都会造成全探头压黑；此时应维持上次偏差继续直行而非强行转弯；
+  与本库 `line_sensor.c` 的 `lastValidError` 设计思路一致。
+  <https://blog.csdn.net/weixin_30363285/article/details/165866108>
+
+- **STM32 灰度循迹判断全解析：从传感器采集到转向决策的避坑**
+  讨论五路探头排布下偏差分级（5 档）的实现与典型误判；可对比本库
+  8 路加权偏差方案的精度优势（连续误差值 vs. 5 档离散）。
+  <https://blog.csdn.net/weixin_42709044/article/details/169162036>
+
+- **STM32 灰度循迹小车：从传感器标定到 PID 调参的完整实战指南**
+  标定流程与本库 `LineSensor_Calibrate()` 步骤对应，
+  特别强调黑白参考值的采集顺序与方向；本库 PITFALLS 第 32 条的根因分析。
+  <https://blog.csdn.net/weixin_30313409/article/details/169162039>
