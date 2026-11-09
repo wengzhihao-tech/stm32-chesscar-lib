@@ -211,3 +211,55 @@ error 为正（线偏右）→ 右轮减速。接线时若把最右侧探头接�
 诊断方法：串口打印各通道 `normalized[]`，
 白底应接近 0（≤100）、黑线应接近 1000（≥900）；
 若关系颠倒，说明标定调用顺序写反，重标一遍即可。
+
+---
+
+## 串口（DMA 进阶）
+
+**33. `HAL_UARTEx_ReceiveToIdle_DMA` 依赖 USART 全局中断，NVIC 未开则永不回调**
+CubeMX 配置 UART + DMA 时会自动在 NVIC 里同时勾选：
+① DMAx_Channelx IRQn（搬数据用）和 ② USARTx IRQn（检测 IDLE 事件用）。
+若手工编辑工程后把 USARTx_IRQn 从 NVIC 关掉（误以为"只用 DMA 不用串口中断"），
+`HAL_UARTEx_RxEventCallback` 永远不会触发，表现是串口接收完全无响应，
+而 `HAL_UARTEx_ReceiveToIdle_DMA()` 本身仍返回 `HAL_OK`，不报任何错误。
+
+根本原因：IDLE 事件由 **UART 外设**检测到总线静默后触发 UART 中断上报；
+DMA 只负责把字节从 `DR` 寄存器搬到内存，两者是独立中断向量，缺一不可。
+
+诊断步骤：
+1. 检查 `stm32f1xx_it.c` 是否存在 `USARTx_IRQHandler` 函数体，
+   且函数内调用了 `HAL_UART_IRQHandler(&huartx)`；
+2. 若缺失，在 CubeMX → NVIC 配置页把 `USARTx global interrupt` 重新勾上并重新生成；
+3. 同时确认 DMAx_Channelx IRQn 也已勾选（DMA 传输完成与半传输同样走中断）。
+
+本库 `examples/hal_callbacks.c` 以 `#ifdef USE_HAL_UART_REGISTER_CALLBACKS` 兼容
+两种回调挂接方式，但 NVIC 配置属于工程/CubeMX 层面，库本身无法帮你开。
+
+**34. Circular DMA 模式下 `Size` 是累积写入位置，非本次新增字节数**
+`HAL_UARTEx_RxEventCallback` 的 `Size` 参数含义取决于接收是否重启：
+
+**方案 A — 每次 IDLE 后重启接收（本库 `uart_link.c` 的做法）：**
+在 `UartLink_OnRxEvent` 末尾调用 `HAL_UARTEx_ReceiveToIdle_DMA` 重新武装，
+DMA 计数器从 0 开始计，因此下次回调的 `Size` 就是本次新增字节数，
+处理逻辑简单：`for (i = 0; i < size; i++)` 直接对应新字节。
+代价：重启期间（约几 µs）到达的字节有微小丢失窗口；
+对有 CRC 校验的帧协议可接受——丢字节导致 CRC 不过，协议层直接丢帧。
+
+**方案 B — 不重启，使用真正的 Circular 模式：**
+`Size` 是 DMA 在缓冲区的**累积写入位置**，非本次新增字节数。
+示例：连续三帧各 23 字节，三次回调的 `Size` 分别为 23、46、69。
+处理新字节的正确方式（伪代码）：
+```c
+uint16_t newBytes = (size - prevSize + BUF_LEN) % BUF_LEN;
+for (uint16_t i = 0; i < newBytes; i++) {
+    byte = dmaBuffer[(prevSize + i) % BUF_LEN];
+    /* 搬入环形缓冲 */
+}
+prevSize = size;
+```
+若 `size == prevSize`，本次无新数据（DMA 还未推进）。
+
+**本库选方案 A。** 若将来为降低重启开销迁移到方案 B，
+`for (i = 0; i < size; ++i)` 必须改为上述 `prevSize` 追踪方式，
+否则每次回调都会重复处理从 0 开始的累积字节，造成帧重复解析，
+表现为每条指令被执行两遍以上。
