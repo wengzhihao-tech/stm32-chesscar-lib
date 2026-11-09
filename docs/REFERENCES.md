@@ -248,3 +248,29 @@
   标定流程与本库 `LineSensor_Calibrate()` 步骤对应，
   特别强调黑白参考值的采集顺序与方向；本库 PITFALLS 第 32 条的根因分析。
   <https://blog.csdn.net/weixin_30313409/article/details/169162039>
+
+---
+
+## 2026-11-09 增量：UART DMA 中断路径与 Circular 模式 Size 语义
+
+本节是新增 `docs/PITFALLS.md` 第 33~34 条时查证的资料。
+
+- **STM32 UART Idle Line: Receive Data via Interrupt & DMA — ControllersTech**
+  详解 Circular DMA 模式下 `Size` 是累积写入位置（非本次新增字节数）；
+  明确指出 `HAL_UARTEx_ReceiveToIdle_DMA` 须在 CubeMX 或 NVIC 中开启 UART 全局中断；
+  三模式（IT / 单次 DMA / Circular DMA）适用场景对比及 head/tail pointer 模型。
+  *注：本文已在 10-27 增量节收录其三模式对比要点；本次补充 Circular Size 累积语义
+  和 NVIC 要求细节，对应 PITFALLS #33/#34。*
+  <https://controllerstech.com/stm32-uart-5-receive-data-using-idle-line>
+
+- **STM32 UART DMA Receive: Normal & Circular Mode (HAL) — ControllersTech**
+  Normal 模式（固定帧长，DMA 满才回调）vs. Circular 模式（不定长，IDLE 触发回调）；
+  解释为何不定长接收必须用 Circular：Normal 模式缓冲区未满时 DMA 只会一直等待，
+  永远不触发回调。可对照理解本库重启方案的 Size 语义。
+  <https://controllerstech.com/stm32-uart-4-receive-data-using-dma>
+
+- **ST 官方社区 · STM32H563 UART DMA IDLE 不触发**（ST 工程师答复，2025-11）
+  ST 工程师确认：`HAL_UARTEx_ReceiveToIdle_DMA()` 必须在 NVIC 中使能 USART IRQn；
+  IDLE 事件经 UART 外设中断上报，DMA 通道中断不能替代。
+  对应 PITFALLS #33 的根本原因说明。
+  <https://community.st.com/stm32-mcus-products-25/stm32h563-uart-dma-idle-not-triggering-159130>
