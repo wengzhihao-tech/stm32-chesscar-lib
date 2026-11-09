@@ -99,6 +99,12 @@ cd test && make run-ramp   # 只跑运动斜坡
   以及标定调用顺序（先白底再黑线）；对应参考资料已补入 `docs/REFERENCES.md`
   2026-11-03 增量节。
 
+- `docs/PITFALLS.md`（2026-11-09 新增第 33~34 条）：覆盖 UART DMA 中断路径——
+  `HAL_UARTEx_ReceiveToIdle_DMA` 依赖 USART 全局中断（NVIC 未开则永不回调，
+  `HAL_OK` 返回不代表接收已启动），以及 Circular DMA 下 `Size` 是累积写入位置
+  而非本次新增字节数（本库选"每次 IDLE 后重启"方案，重启期间有微小丢失窗口，
+  对有 CRC 校验的帧协议可接受；迁移到真 Circular 时须改用 prevSize 追踪）。
+
 ## 文档
 
 - [`docs/COMPETITION_TASK1.md`](docs/COMPETITION_TASK1.md) —— **赛醘1 方案与硬件选型（先读这个）**
